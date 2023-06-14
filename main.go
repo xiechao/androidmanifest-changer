@@ -25,15 +25,20 @@ const (
 )
 
 type Config struct {
-	versionCode int32
-	versionName string
-	packageName string
+	versionCode   int32
+	versionName   string
+	packageName   string
+	campaignSign  string
+	campaignValue string
 }
 
 func main() {
 	versionCode := flag.Uint("versionCode", 0, "The versionCode to set")
 	versionName := flag.String("versionName", "", "The versionName to set")
 	packageName := flag.String("package", "", "The package to set")
+	campaignSign := flag.String("campaignSign", "", "The campaign sign to find")
+	campaignValue := flag.String("campaignValue", "", "The campaign value to set")
+
 	flag.Parse()
 	if len(flag.Args()) != 1 {
 		fmt.Fprintln(flag.CommandLine.Output(), "Error: File path is required.")
@@ -41,9 +46,11 @@ func main() {
 		os.Exit(2)
 	}
 	config := &Config{
-		versionCode: int32(*versionCode),
-		versionName: *versionName,
-		packageName: *packageName,
+		versionCode:   int32(*versionCode),
+		versionName:   *versionName,
+		packageName:   *packageName,
+		campaignSign:  *campaignSign,
+		campaignValue: *campaignValue,
 	}
 
 	path := flag.Arg(0)
@@ -165,6 +172,7 @@ func updateManifest(path string, config *Config) {
 	if err := proto.Unmarshal(in, xmlNode); err != nil {
 		log.Fatalln("Failed to parse manifest:", err)
 	}
+
 	for _, attr := range xmlNode.GetElement().GetAttribute() {
 		if attr.GetNamespaceUri() == "" && attr.GetName() == "package" {
 			if config.packageName != "" {
@@ -196,6 +204,10 @@ func updateManifest(path string, config *Config) {
 		}
 	}
 
+	if len(config.campaignSign) > 0 {
+		channelCampaignValue(xmlNode, config)
+	}
+
 	// We use MarshalVT because it keeps the correct field ordering.
 	// With the standard Marshal function, Android Studio can't read the resulting proto file inside aab files. :-/
 	out, err := xmlNode.MarshalVT()
@@ -205,4 +217,29 @@ func updateManifest(path string, config *Config) {
 	if err := ioutil.WriteFile(path, out, 0600); err != nil {
 		log.Fatalln("Error writing file:", err)
 	}
+}
+
+func channelCampaignValue(xmlNode *XmlNode, config *Config) {
+	currentElement := xmlNode.GetElement()
+
+	if currentElement != nil {
+		for _, attr := range currentElement.GetAttribute() {
+			if attr.GetValue() == config.campaignSign {
+				for _, attr := range currentElement.GetAttribute() {
+					if attr.GetName() == "value" {
+						oldData := attr.Value
+						attr.Value = config.campaignValue
+						fmt.Printf("Changing %s from %s to %s\n", config.campaignSign, oldData, attr.Value)
+						break
+					}
+				}
+
+				return
+			}
+		}
+		for _, xmlNodeTmp := range currentElement.Child {
+			channelCampaignValue(xmlNodeTmp, config)
+		}
+	}
+
 }
